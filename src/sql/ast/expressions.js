@@ -1,0 +1,9 @@
+export const Expr = {
+  literal: (value) => ({ kind: 'Literal', value }),
+  column: (name) => ({ kind: 'ColumnRef', name }),
+  binary: (op, left, right) => ({ kind: 'BinaryExpr', op, left, right }),
+  unary: (op, expr) => ({ kind: 'UnaryExpr', op, expr }),
+  func: (name, args) => ({ kind: 'FuncCall', name, args }),
+  case: (branches, elseExpr) => ({ kind: 'CaseExpr', branches, elseExpr }),
+  star: () => ({ kind: 'Star' }),
+};
