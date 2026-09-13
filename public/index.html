@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SQL Clone</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- ============ TOPBAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+    <img  src="./media/logo.png" width="55px">
+      <div class="brand-text">
+       
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <span id="status" class="status status--down">
+        <span class="dot"></span><span id="status-text">connecting…</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ============ MAIN LAYOUT ============ -->
+  <main class="layout">
+
+    <!-- ---------- SIDE RAIL (history + tables) ---------- -->
+    <aside class="side-rail">
+
+      <!-- History -->
+      <section class="rail-section rail-section--history">
+        <div class="rail-head">
+          <span>History</span>
+          <button id="clear-history" class="mini" title="Clear history">×</button>
+        </div>
+        <div id="history" class="history-list">
+          <div class="history-empty">No queries yet</div>
+        </div>
+      </section>
+
+      <!-- Tables -->
+      <section class="rail-section rail-section--tables">
+        <div class="rail-head">
+          <span>Tables</span>
+          <button id="refresh-tables" class="mini" title="Refresh">⟳</button>
+        </div>
+        <div id="tables" class="table-list">
+          <div class="tables-empty">No tables</div>
+        </div>
+      </section>
+
+    </aside>
+
+    <!-- ---------- QUERY ---------- -->
+    <section class="pane pane--query">
+      <div class="pane-header">
+        <h2>Query</h2>
+        <span class="hint">Ctrl / ⌘ + Enter to run</span>
+      </div>
+      <textarea id="editor" spellcheck="false" placeholder="SELECT * FROM users;"></textarea>
+      <div class="pane-actions">
+        <button id="run" class="btn btn--primary">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+          Run
+        </button>
+        <button id="clear" class="btn">Clear</button>
+        <button id="sample" class="btn btn--ghost">Load sample</button>
+        <span class="spacer"></span>
+        <span id="timing" class="timing"></span>
+      </div>
+    </section>
+
+    <!-- ---------- RESULT ---------- -->
+    <section class="pane pane--result">
+      <div class="pane-header">
+        <h2>Result</h2>
+        <span id="meta" class="hint"></span>
+      </div>
+      <div id="result" class="result">
+        <div class="placeholder">Run a query to see results.</div>
+      </div>
+    </section>
+  </main>
+    <footer class="credit">
+    <span>A sql-clone project of <strong>Harshit Rajput.</strong></span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

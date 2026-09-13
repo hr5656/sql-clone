@@ -14,7 +14,7 @@ const KEYWORDS = new Set([
   'TRUE','FALSE',
 ]);
 
-const PUNCT = new Set(['(', ')', ',', ';', '*']);
+const PUNCT = new Set(['(', ')', ',', ';', '*', '.']);
 
 export class Lexer {
   constructor(input) {

@@ -1,25 +1,24 @@
 /**
- * Evaluate an AST expression against a row (plain JS object).
- * If `row` is null, only literals and pure arithmetic are allowed.
+ * Evaluate an expression against a row.
+ * - `row` is a plain object.
+ * - `group` (optional) is the array of rows for aggregate context.
+ * - Aggregates inside `expr` use `group` if provided, else treat row as singleton group.
  */
-export function evalExpr(expr, row) {
+export function evalExpr(expr, row, group = null) {
   if (expr == null) return null;
 
   switch (expr.kind) {
-    case 'Literal':
-      return expr.value;
-
+    case 'Literal':   return expr.value;
     case 'ColumnRef':
       if (!row) throw new Error(`Column '${expr.name}' referenced without FROM`);
       if (!(expr.name in row)) throw new Error(`Unknown column '${expr.name}'`);
       return row[expr.name];
 
     case 'Star':
-      // Star is handled by the projector, not the evaluator.
       throw new Error('Star is not an evaluable expression');
 
     case 'UnaryExpr': {
-      const v = evalExpr(expr.expr, row);
+      const v = evalExpr(expr.expr, row, group);
       switch (expr.op) {
         case '-':   return -v;
         case '+':   return +v;
@@ -29,31 +28,28 @@ export function evalExpr(expr, row) {
     }
 
     case 'BinaryExpr':
-      return evalBinary(expr, row);
+      return evalBinary(expr, row, group);
 
     case 'FuncCall':
-      return evalFunction(expr, row);
+      return evalFunc(expr, row, group);
 
     case 'CaseExpr': {
       for (const { cond, val } of expr.branches) {
-        if (evalExpr(cond, row)) return evalExpr(val, row);
+        if (evalExpr(cond, row, group)) return evalExpr(val, row, group);
       }
-      return expr.elseExpr ? evalExpr(expr.elseExpr, row) : null;
+      return expr.elseExpr ? evalExpr(expr.elseExpr, row, group) : null;
     }
   }
-
   throw new Error(`Cannot evaluate expression kind '${expr.kind}'`);
 }
 
-function evalBinary(expr, row) {
+function evalBinary(expr, row, group) {
   const op = expr.op;
+  if (op === 'AND') return evalExpr(expr.left, row, group) && evalExpr(expr.right, row, group);
+  if (op === 'OR')  return evalExpr(expr.left, row, group) || evalExpr(expr.right, row, group);
 
-  // short-circuit AND / OR
-  if (op === 'AND') return evalExpr(expr.left, row) && evalExpr(expr.right, row);
-  if (op === 'OR')  return evalExpr(expr.left, row) || evalExpr(expr.right, row);
-
-  const l = evalExpr(expr.left, row);
-  const r = evalExpr(expr.right, row);
+  const l = evalExpr(expr.left, row, group);
+  const r = evalExpr(expr.right, row, group);
 
   switch (op) {
     case '=':  return looseEq(l, r);
@@ -79,25 +75,33 @@ function looseEq(a, b) {
 }
 
 function numericOrConcat(a, b, fn) {
-  // If either side is a string, concatenate.
   if (typeof a === 'string' || typeof b === 'string') return String(a) + String(b);
   return fn(Number(a), Number(b));
 }
 
-function evalFunction(expr, row) {
+function evalFunc(expr, row, group) {
   const name = expr.name.toUpperCase();
-  // Aggregates are handled in the executor (Phase 5). If we get here, they
-  // were used in a scalar context — evaluate over a single value.
+
   if (['COUNT','SUM','AVG','MIN','MAX'].includes(name)) {
-    const args = expr.args.map((a) => evalExpr(a, row));
+    const rows = group || (row ? [row] : []);
+
+    if (name === 'COUNT') {
+      if (expr.args.length === 1 && expr.args[0].kind === 'Star') return rows.length;
+      const col = expr.args[0];
+      return rows.filter((r) => evalExpr(col, r, null) != null).length;
+    }
+
+    const col = expr.args[0];
+    const values = rows.map((r) => evalExpr(col, r, null)).filter((v) => v != null);
+    if (values.length === 0) return null;
+
     switch (name) {
-      case 'COUNT': return args.filter((v) => v != null).length;
-      case 'SUM':   return args.reduce((s, v) => s + Number(v || 0), 0);
-      case 'AVG':   return args.length ? args.reduce((s, v) => s + Number(v || 0), 0) / args.length : 0;
-      case 'MIN':   return args.length ? Math.min(...args.map(Number)) : null;
-      case 'MAX':   return args.length ? Math.max(...args.map(Number)) : null;
+      case 'SUM': return values.reduce((s, v) => s + Number(v), 0);
+      case 'AVG': return values.reduce((s, v) => s + Number(v), 0) / values.length;
+      case 'MIN': return values.reduce((m, v) => (v < m ? v : m));
+      case 'MAX': return values.reduce((m, v) => (v > m ? v : m));
     }
   }
+
   throw new Error(`Unknown function '${expr.name}'`);
 }
-

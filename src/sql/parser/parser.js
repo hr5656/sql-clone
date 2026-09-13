@@ -4,7 +4,6 @@ import { ParseError } from '../../common/errors.js';
 import * as AST from '../ast/statements.js';
 import { Expr } from '../ast/expressions.js';
 
-// --- operator precedence (higher = binds tighter) ---
 const BINOP_BP = {
   'OR': 5,
   'AND': 10,
@@ -13,13 +12,14 @@ const BINOP_BP = {
   '*': 40, '/': 40, '%': 40,
 };
 
+const AGG_FUNCS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
+
 export class Parser {
   constructor(input) {
     this.tokens = new Lexer(input).tokenize();
     this.pos = 0;
   }
 
-  // ---------- token helpers ----------
   peek(off = 0) { return this.tokens[this.pos + off]; }
   next() { return this.tokens[this.pos++]; }
   is(value) { return this.peek().value === value; }
@@ -36,7 +36,6 @@ export class Parser {
     return t;
   }
 
-  // ---------- entry ----------
   parse() {
     const t = this.peek();
     switch (t.value) {
@@ -60,18 +59,14 @@ export class Parser {
     while (!this.is(')')) {
       const colName = this.expectType(TokenType.IDENT).value;
       const colType = this.next().value;
-      const col = { name: colName, type: colType, nullable: true, primaryKey: false, defaultValue: null };
+      const col = { name: colName, type: colType, nullable: true, primaryKey: false, unique: false, defaultValue: null };
 
       while (this.is('NOT') || this.is('NULL') || this.is('PRIMARY') || this.is('UNIQUE') || this.is('DEFAULT')) {
         if (this.is('NOT'))      { this.next(); this.expect('NULL'); col.nullable = false; }
         else if (this.is('NULL')){ this.next(); col.nullable = true; }
         else if (this.is('PRIMARY')) { this.next(); this.expect('KEY'); col.primaryKey = true; col.nullable = false; }
         else if (this.is('UNIQUE'))  { this.next(); col.unique = true; }
-        else if (this.is('DEFAULT')) {
-          this.next();
-          const t = this.next();
-          col.defaultValue = t.value;
-        }
+        else if (this.is('DEFAULT')) { this.next(); col.defaultValue = this.next().value; }
       }
       columns.push(col);
       if (this.is(',')) this.next();
@@ -82,7 +77,7 @@ export class Parser {
   }
 
   // ---------- INSERT ----------
-  parseInsert() {
+   parseInsert() {
     this.expect('INSERT');
     this.expect('INTO');
     const table = this.expectType(TokenType.IDENT).value;
@@ -100,20 +95,29 @@ export class Parser {
 
     this.expect('VALUES');
 
+    // ---- one or more value rows ----
     const rows = [];
-    do {
-      this.expect('(');
-      const values = [];
-      while (!this.is(')')) {
-        values.push(this.parseExpr()); // full expression support
-        if (this.is(',')) this.next();
-      }
-      this.expect(')');
-      rows.push(values);
-    } while (this.is(','));
+    rows.push(this.parseValueRow());
+    while (this.is(',')) {
+      this.next();                 // comma BETWEEN rows
+      rows.push(this.parseValueRow());
+    }
 
     if (this.is(';')) this.next();
     return new AST.Insert(table, columns, rows);
+  }
+
+
+    parseValueRow() {
+    this.expect('(');
+    const values = [];
+    if (!this.is(')')) {
+      do {
+        values.push(this.parseExpr());
+      } while (this.is(',') && this.next());
+    }
+    this.expect(')');
+    return values;
   }
 
   // ---------- SELECT ----------
@@ -123,10 +127,8 @@ export class Parser {
     let distinct = false;
     if (this.is('DISTINCT')) { this.next(); distinct = true; }
 
-    // select list
     const columns = [];
     while (!this.is('FROM') && !this.is(';') && !this.isType(TokenType.EOF)) {
-      // star
       if (this.is('*')) { this.next(); columns.push({ expr: Expr.star(), alias: null }); }
       else {
         const expr = this.parseExpr();
@@ -137,7 +139,6 @@ export class Parser {
       if (this.is(',')) this.next(); else break;
     }
 
-    // no FROM → constant select
     if (!this.is('FROM')) {
       if (this.is(';')) this.next();
       const stmt = new AST.Select(columns, null);
@@ -147,16 +148,46 @@ export class Parser {
 
     this.expect('FROM');
     const table = this.expectType(TokenType.IDENT).value;
-    const stmt = new AST.Select(columns, table);
-    stmt.distinct = distinct;
 
-    // WHERE
-    if (this.is('WHERE')) {
-      this.next();
-      stmt.where = this.parseExpr();
+    // ---- JOINs ----
+    const joins = [];
+    while (this.is('INNER') || this.is('LEFT') || this.is('RIGHT') || this.is('CROSS')) {
+      let type = 'INNER';
+      if (this.is('INNER'))      { this.next(); type = 'INNER'; }
+      else if (this.is('LEFT'))  { this.next(); type = 'LEFT'; }
+      else if (this.is('RIGHT')) { this.next(); type = 'RIGHT'; }
+      else if (this.is('CROSS')) { this.next(); type = 'CROSS'; }
+
+      this.expect('JOIN');
+      const jTable = this.expectType(TokenType.IDENT).value;
+
+      let on = null;
+      if (this.is('ON')) {
+        this.next();
+        on = this.parseExpr();
+      }
+      joins.push({ type, table: jTable, on });
     }
 
-    // ORDER BY
+    const stmt = new AST.Select(columns, table);
+    stmt.distinct = distinct;
+    stmt.joins = joins;
+
+    if (this.is('WHERE'))   { this.next(); stmt.where = this.parseExpr(); }
+
+    if (this.is('GROUP')) {
+      this.next();
+      this.expect('BY');
+      const keys = [];
+      do { keys.push(this.parseExpr()); } while (this.is(',') && this.next());
+      stmt.groupBy = keys;
+    }
+
+    if (this.is('HAVING')) {
+      this.next();
+      stmt.having = this.parseExpr();
+    }
+
     if (this.is('ORDER')) {
       this.next();
       this.expect('BY');
@@ -167,17 +198,8 @@ export class Parser {
       stmt.orderBy = { key, dir };
     }
 
-    // LIMIT
-    if (this.is('LIMIT')) {
-      this.next();
-      stmt.limit = this.expectType(TokenType.NUMBER).value;
-    }
-
-    // OFFSET
-    if (this.is('OFFSET')) {
-      this.next();
-      stmt.offset = this.expectType(TokenType.NUMBER).value;
-    }
+    if (this.is('LIMIT'))  { this.next(); stmt.limit = this.expectType(TokenType.NUMBER).value; }
+    if (this.is('OFFSET')) { this.next(); stmt.offset = this.expectType(TokenType.NUMBER).value; }
 
     if (this.is(';')) this.next();
     return stmt;
@@ -193,8 +215,7 @@ export class Parser {
     do {
       const col = this.expectType(TokenType.IDENT).value;
       this.expect('=');
-      const val = this.parseExpr();
-      assignments.push([col, val]);
+      assignments.push([col, this.parseExpr()]);
     } while (this.is(',') && this.next());
 
     let where = null;
@@ -217,19 +238,15 @@ export class Parser {
     return new AST.Delete(table, where);
   }
 
-  // ---------- Pratt expression parser ----------
+  // ---------- Pratt expressions ----------
   parseExpr(minBP = 0) {
     let left = this.parseUnary();
-
     while (true) {
-      const t = this.peek();
-      const op = t.value;
+      const op = this.peek().value;
       const bp = BINOP_BP[op];
       if (bp === undefined || bp < minBP) break;
-
       this.next();
-      const right = this.parseExpr(bp + 1);
-      left = Expr.binary(op, left, right);
+      left = Expr.binary(op, left, this.parseExpr(bp + 1));
     }
     return left;
   }
@@ -243,7 +260,7 @@ export class Parser {
     return this.parseAtom();
   }
 
-  parseAtom() {
+    parseAtom() {
     const t = this.next();
 
     if (t.type === TokenType.NUMBER) return Expr.literal(t.value);
@@ -252,24 +269,36 @@ export class Parser {
     if (t.value === 'TRUE')  return Expr.literal(true);
     if (t.value === 'FALSE') return Expr.literal(false);
 
-    // CASE WHEN
     if (t.value === 'CASE') return this.parseCase();
 
-    // function call (COUNT, SUM, ...)
-    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
-      if (this.is('(') && ['COUNT','SUM','AVG','MIN','MAX'].includes(t.value)) {
-        this.next(); // (
-        const args = [];
-        if (!this.is(')')) {
-          do { args.push(this.parseExpr()); } while (this.is(',') && this.next());
-        }
+    // function call (aggregate / scalar)
+    if ((t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) && this.is('(')) {
+      const name = t.value.toUpperCase();
+      this.next(); // (
+      if (name === 'COUNT' && this.is('*')) {
+        this.next();
         this.expect(')');
-        return Expr.func(t.value, args);
+        return Expr.func('COUNT', [Expr.star()]);
       }
-      return Expr.column(t.value);
+      const args = [];
+      if (!this.is(')')) {
+        do { args.push(this.parseExpr()); } while (this.is(',') && this.next());
+      }
+      this.expect(')');
+      return Expr.func(name, args);
     }
 
-    // parenthesized
+    // identifier or qualified identifier: a  OR  a.b
+    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
+      let name = t.value;
+      while (this.is('.')) {
+        this.next();                                  // consume '.'
+        const part = this.expectType(TokenType.IDENT).value;
+        name = `${name}.${part}`;
+      }
+      return Expr.column(name);
+    }
+
     if (t.value === '(') {
       const e = this.parseExpr();
       this.expect(')');
@@ -290,12 +319,7 @@ export class Parser {
       const val = this.parseExpr();
       branches.push({ cond, val });
     }
-
-    if (this.is('ELSE')) {
-      this.next();
-      elseExpr = this.parseExpr();
-    }
-
+    if (this.is('ELSE')) { this.next(); elseExpr = this.parseExpr(); }
     this.expect('END');
     return Expr.case(branches, elseExpr);
   }

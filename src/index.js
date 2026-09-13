@@ -1,19 +1,25 @@
 import { TcpServer } from './server/tcpServer.js';
+import { WebServer } from './server/webServer.js';
 
-const PORT = Number(process.env.PORT || 5433);
-const HOST = process.env.HOST || '0.0.0.0';
+const TCP_PORT = Number(process.env.PORT || 5433);
+const WEB_PORT = Number(process.env.WEB_PORT || 8080);
+const HOST     = process.env.HOST || '0.0.0.0';
 
-const server = new TcpServer({ host: HOST, port: PORT });
+const tcp = new TcpServer({ host: HOST, port: TCP_PORT });
+const web = new WebServer({ port: WEB_PORT, sqlHost: '127.0.0.1', sqlPort: TCP_PORT });
 
 process.on('SIGINT', () => {
   console.log('\n[server] shutting down...');
-  server.stop();
+  tcp.stop();
+  web.stop();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  server.stop();
+  tcp.stop();
+  web.stop();
   process.exit(0);
 });
 
-server.start();
+tcp.start();
+web.start();

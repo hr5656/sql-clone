@@ -11,19 +11,22 @@ export class Insert {
   constructor(table, columns, values) {
     this.kind = 'Insert';
     this.table = table;
-    this.columns = columns; // array or null (positional)
-    this.values = values;   // array of rows (each row = array of values)
+    this.columns = columns;
+    this.values = values;
   }
 }
 
 export class Select {
   constructor(columns, table) {
     this.kind = 'Select';
-    this.columns = columns; // [{ expr, alias }]
-    this.table = table;     // null → constant select
+    this.columns = columns;      // [{ expr, alias }]
+    this.table = table;          // primary table or null
+    this.joins = [];             // [{ type, table, on }]
     this.distinct = false;
     this.where = null;
-    this.orderBy = null;    // { key: expr, dir: 'ASC'|'DESC' }
+    this.groupBy = null;         // [expr, ...]
+    this.having = null;          // expr
+    this.orderBy = null;         // { key, dir }
     this.limit = null;
     this.offset = null;
   }
@@ -33,7 +36,7 @@ export class Update {
   constructor(table, assignments, where = null) {
     this.kind = 'Update';
     this.table = table;
-    this.assignments = assignments; // [[col, expr], ...]
+    this.assignments = assignments;
     this.where = where;
   }
 }

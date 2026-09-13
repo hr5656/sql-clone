@@ -6,7 +6,7 @@ const PORT = Number(process.env.PORT || 5433);
 
 const socket = net.connect(PORT, HOST, () => {
   console.log(`connected to sql-clone @ ${HOST}:${PORT}`);
-  console.log('type SQL and press Enter. Ctrl+C to quit.\n');
+  console.log('type SQL (multi-line OK, end with ;). Ctrl+C to quit.\n');
 });
 
 let buf = Buffer.alloc(0);
@@ -27,14 +27,24 @@ socket.on('data', (chunk) => {
   }
 });
 
+// ---- statement buffer ----
+let pending = '';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
 rl.on('line', (line) => {
-  const sql = line.trim();
-  if (!sql) return;
-  const payload = Buffer.from(sql, 'utf8');
-  const header = Buffer.alloc(4);
-  header.writeUInt32BE(payload.length, 0);
-  socket.write(Buffer.concat([header, payload]));
+  pending += line + '\n';
+
+  // send once we see a `;`
+  if (pending.includes(';')) {
+    const sql = pending.trim();
+    pending = '';
+    if (!sql) return;
+
+    const payload = Buffer.from(sql, 'utf8');
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(payload.length, 0);
+    socket.write(Buffer.concat([header, payload]));
+  }
 });
 
 socket.on('error', (e) => console.error('client error:', e.message));

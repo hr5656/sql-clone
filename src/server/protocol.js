@@ -2,7 +2,7 @@ import { Executor } from '../sql/executor/executor.js';
 import { Database } from '../storage/database.js';
 import { SqlError } from '../common/errors.js';
 
-const MAX_FRAME_BYTES = 1 * 1024 * 1024; // 1 MiB safety cap
+const MAX_FRAME_BYTES = 1 * 1024 * 1024;
 
 export class Protocol {
   constructor(socket, { dbName = 'default' } = {}) {
@@ -12,7 +12,6 @@ export class Protocol {
     this.executor = new Executor(this.database);
   }
 
-  /** Incoming bytes → framed messages → onMessage */
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
 
@@ -34,11 +33,30 @@ export class Protocol {
     }
   }
 
-  /** Handle one SQL string. Always replies with one framed JSON message. */
   onMessage(sql) {
     const trimmed = String(sql).trim();
     if (!trimmed) {
       this.send({ ok: true, kind: 'noop' });
+      return;
+    }
+
+    // ---- internal meta commands (used by the web UI) ----
+    if (trimmed === '__META__ TABLES') {
+      const tables = this.database.listTables().map((name) => {
+        const t = this.database.getTable(name);
+        return {
+          name,
+          rowCount: t.rows.length,
+          columns: t.columns.map((c) => ({
+            name: c.name,
+            type: c.type,
+            nullable: c.nullable,
+            primaryKey: c.primaryKey,
+            unique: c.unique,
+          })),
+        };
+      });
+      this.send({ ok: true, tables });
       return;
     }
 
@@ -54,7 +72,6 @@ export class Protocol {
     }
   }
 
-  /** Send one framed JSON message. */
   send(objOrString) {
     const text = typeof objOrString === 'string'
       ? objOrString

@@ -1,5 +1,5 @@
 export class Column {
-  constructor({ name, type, nullable = true, defaultValue = null, primaryKey = false }) {
+  constructor({ name, type, nullable = true, defaultValue = null, primaryKey = false, unique = false }) {
     if (!name) throw new Error('Column name required');
     if (!type) throw new Error(`Column '${name}' needs a type`);
 
@@ -8,6 +8,7 @@ export class Column {
     this.nullable = nullable;
     this.defaultValue = defaultValue;
     this.primaryKey = primaryKey;
+    this.unique = unique;
   }
 
   coerce(value) {
@@ -50,6 +51,7 @@ export class Column {
       nullable: this.nullable,
       defaultValue: this.defaultValue,
       primaryKey: this.primaryKey,
+      unique: this.unique,
     };
   }
 }
