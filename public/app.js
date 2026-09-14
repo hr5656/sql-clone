@@ -162,14 +162,27 @@ function renderTables(tables) {
     return;
   }
   tablesEl.innerHTML = tables.map((t) => {
+    const idxByCol = new Map();
+    for (const ix of t.indexes || []) {
+      if (!idxByCol.has(ix.column)) idxByCol.set(ix.column, []);
+      idxByCol.get(ix.column).push(ix);
+    }
+
     const cols = t.columns.map((c) => {
       const pk = c.primaryKey ? ' <span class="pk">PK</span>' : '';
-      return `<span class="ti-col"><span>${esc(c.name)}</span> <span class="t">${esc(c.type)}</span>${pk}</span>`;
+      const ixList = idxByCol.get(c.name) || [];
+      const ix = ixList.length
+        ? ' ' + ixList.map((i) =>
+            `<span class="ix ${i.implicit ? 'ix--implicit' : ''}" title="${esc(i.name)} (${i.kind}${i.unique ? ', unique' : ''})">${i.implicit ? 'IDX' : 'IDX'}</span>`
+          ).join('')
+        : '';
+      return `<span class="ti-col"><span>${esc(c.name)}</span> <span class="t">${esc(c.type)}</span>${pk}${ix}</span>`;
     }).join('');
+
     return `
       <div class="table-item" data-name="${esc(t.name)}" title="Click to query">
         <div class="ti-name">${esc(t.name)}</div>
-        <div class="ti-meta">${t.columns.length} cols · ${t.rowCount} rows</div>
+        <div class="ti-meta">${t.columns.length} cols · ${t.rowCount} rows · ${(t.indexes || []).length} idx</div>
         <div class="ti-cols">${cols}</div>
       </div>`;
   }).join('');

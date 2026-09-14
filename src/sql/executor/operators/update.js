@@ -1,21 +1,33 @@
 import { evalExpr } from '../eval.js';
+import { Row } from '../../../storage/row.js';
 
-export function update(database, node) {
+export function update(database, node, session = null) {
   const table = database.getTable(node.table);
   if (!table) throw new Error(`Table '${node.table}' not found`);
 
+  const snapshot = table.rows.map((r) => r.toJSON());
   let affected = 0;
-  for (const row of table.scan()) {
-    const snapshot = row.toJSON();
-    if (node.where && !truthy(evalExpr(node.where, snapshot))) continue;
 
+  for (const row of table.scan()) {
+    const current = row.toJSON();
+    if (node.where && !truthy(evalExpr(node.where, current))) continue;
     for (const [col, exprAst] of node.assignments) {
-      row.set(col, evalExpr(exprAst, snapshot));
+      row.set(col, evalExpr(exprAst, current));
     }
     affected++;
   }
 
   table.save();
+  database.indexes.rebuild(node.table, table);
+
+  if (session && session.inTransaction && session.inTransaction()) {
+    session.currentTx.record(() => {
+      table.rows = snapshot.map((r) => Row.fromJSON(r, table.columns));
+      table.save();
+      database.indexes.rebuild(node.table, table);
+    }, node.table);
+  }
+
   return { ok: true, kind: 'update', affected };
 }
 

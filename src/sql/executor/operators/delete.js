@@ -1,24 +1,35 @@
 import { evalExpr } from '../eval.js';
+import { Row } from '../../../storage/row.js';
 
-export function remove(database, node) {
+export function remove(database, node, session = null) {
   const table = database.getTable(node.table);
   if (!table) throw new Error(`Table '${node.table}' not found`);
 
+  const snapshot = table.rows.map((r) => r.toJSON());
+  const before = table.rows.length;
+
   if (!node.where) {
-    const deleted = table.rows.length;
     table.rows = [];
-    table.save();
-    return { ok: true, kind: 'delete', deleted };
+  } else {
+    const kept = [];
+    for (const row of table.rows) {
+      if (!truthy(evalExpr(node.where, row.toJSON()))) kept.push(row);
+    }
+    table.rows = kept;
   }
 
-  const kept = [];
-  let deleted = 0;
-  for (const row of table.rows) {
-    if (truthy(evalExpr(node.where, row.toJSON()))) deleted++;
-    else kept.push(row);
-  }
-  table.rows = kept;
+  const deleted = before - table.rows.length;
   table.save();
+  database.indexes.rebuild(node.table, table);
+
+  if (session && session.inTransaction && session.inTransaction()) {
+    session.currentTx.record(() => {
+      table.rows = snapshot.map((r) => Row.fromJSON(r, table.columns));
+      table.save();
+      database.indexes.rebuild(node.table, table);
+    }, node.table);
+  }
+
   return { ok: true, kind: 'delete', deleted };
 }
 

@@ -2,15 +2,14 @@ import { Token, TokenType } from './token.js';
 import { ParseError } from '../../common/errors.js';
 
 const KEYWORDS = new Set([
-  // statements
   'CREATE','TABLE','INSERT','INTO','VALUES','SELECT','FROM','WHERE','UPDATE','SET',
   'DELETE','ORDER','BY','LIMIT','OFFSET','DISTINCT','CASE','WHEN','THEN','ELSE','END',
   'GROUP','HAVING','COUNT','SUM','AVG','MIN','MAX','INNER','LEFT','RIGHT','CROSS','JOIN',
   'ON','PRIMARY','KEY','FOREIGN','REFERENCES','UNIQUE','NOT','NULL','CHECK','DEFAULT',
   'WITH','OVER','PARTITION','AS','AND','OR','BEGIN','COMMIT','ROLLBACK',
-  // types
+  'EXPLAIN','INDEX','HASH','BTREE',
+  'IN','EXISTS','ROW_NUMBER','RANK','DENSE_RANK','LAG','LEAD',   // ← new
   'INT','INTEGER','FLOAT','REAL','TEXT','VARCHAR','STRING','BOOL','BOOLEAN',
-  // literals
   'TRUE','FALSE',
 ]);
 

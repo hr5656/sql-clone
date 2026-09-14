@@ -16,6 +16,7 @@ export class Table {
       c instanceof Column ? c : new Column(c)
     );
     this.rows = [];
+     this.indexes = [];
     this.filePath = path.join(baseDir, `${this.name}.tbl`);
 
     if (fs.existsSync(this.filePath)) this.load();
@@ -89,12 +90,13 @@ export class Table {
       name: this.name,
       columns: this.columns.map((c) => c.toJSON()),
       rows: this.rows.map((r) => r.toJSON()),
+      indexes: this.indexes,     // ← add
     };
     fs.writeFileSync(this.filePath, JSON.stringify(payload, null, 2));
   }
 
   /** Load from disk. */
-  load() {
+   load() {
     const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
 
     if (Array.isArray(raw.columns) && raw.columns.length) {
@@ -104,6 +106,7 @@ export class Table {
     }
 
     this.rows = (raw.rows || []).map((r) => Row.fromJSON(r, this.columns));
+    this.indexes = raw.indexes || [];          // ← add
   }
 
   /** Delete the backing file and clear memory. */

@@ -6,4 +6,17 @@ export const Expr = {
   func: (name, args) => ({ kind: 'FuncCall', name, args }),
   case: (branches, elseExpr) => ({ kind: 'CaseExpr', branches, elseExpr }),
   star: () => ({ kind: 'Star' }),
+  subquery: (query) => ({ kind: 'Subquery', query }),
+  window: (name, args, partitionBy, orderBy, dir) => ({
+    kind: 'WindowFunc',
+    name,
+    args,
+    partitionBy: partitionBy || [],
+    orderBy: orderBy || null,
+    dir: dir || 'ASC',
+  }),
+  inSubquery: (expr, query) => ({ kind: 'InSubquery', expr, query }),
+  inList: (expr, list) => ({ kind: 'InList', expr, list }),
+  exists: (query, negated = false) => ({ kind: 'Exists', query, negated }),
+  isNull: (expr, negated = false) => ({ kind: 'IsNull', expr, negated }),
 };

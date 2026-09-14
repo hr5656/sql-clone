@@ -19,16 +19,17 @@ export class Insert {
 export class Select {
   constructor(columns, table) {
     this.kind = 'Select';
-    this.columns = columns;      // [{ expr, alias }]
-    this.table = table;          // primary table or null
-    this.joins = [];             // [{ type, table, on }]
+    this.columns = columns;
+    this.table = table;
+    this.joins = [];
     this.distinct = false;
     this.where = null;
-    this.groupBy = null;         // [expr, ...]
-    this.having = null;          // expr
-    this.orderBy = null;         // { key, dir }
+    this.groupBy = null;
+    this.having = null;
+    this.orderBy = null;
     this.limit = null;
     this.offset = null;
+    this.with_ = null;   // ← new: WITH ctes
   }
 }
 
@@ -47,4 +48,48 @@ export class Delete {
     this.table = table;
     this.where = where;
   }
+}
+
+export class CreateIndex {
+  constructor({ name, table, column, unique = false, kind = 'BTREE' }) {
+    this.kind = 'CreateIndex';
+    this.name = name;
+    this.table = table;
+    this.column = column;
+    this.unique = unique;
+    this.indexKind = kind; // 'BTREE' | 'HASH'
+  }
+}
+
+export class DropIndex {
+  constructor({ name }) {
+    this.kind = 'DropIndex';
+    this.name = name;
+  }
+}
+export class WithQuery {
+  constructor(ctes, inner) {
+    this.kind = 'With';
+    this.ctes = ctes;   // [{ name, query }]
+    this.inner = inner; // a Select AST
+  }
+}
+
+export class SubqueryExpr {
+  constructor(query) {
+    this.kind = 'Subquery';
+    this.query = query; // a Select AST
+  }
+}
+
+export class BeginTx {
+  constructor() { this.kind = 'Begin'; }
+}
+
+export class CommitTx {
+  constructor() { this.kind = 'Commit'; }
+}
+
+export class RollbackTx {
+  constructor() { this.kind = 'Rollback'; }
 }

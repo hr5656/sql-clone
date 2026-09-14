@@ -407,7 +407,9 @@ body {
   border-color: #5638d6;
   color: white;
 }
-.btn--primary:hover { filter: brightness(1.06); }
+.btn--primary:hover { filter: brightness(1.06); 
+color:#5638d6 !important
+}
 .btn--ghost {
   background: transparent;
   color: var(--text-dim);
@@ -523,4 +525,16 @@ td.null {
 .credit strong {
   color: var(--text-dim);
   font-weight: 600;
+}
+.table-item .ti-col .ix {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: .5px;
+  background: #ede9fe;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.table-item .ti-col .ix--implicit {
+  opacity: 0.6;
 }
