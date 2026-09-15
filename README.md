@@ -1,13 +1,52 @@
 # Relation database system
 
-<div align="center">
+
+
+**A SQL database engine + browser UI, built from scratch in Node.js.**
+
 
 <img src="images/logo.png" alt="Hsql Logo" width="180" height="180"/>
 
 
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](#)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+Hand-written lexer, parser, planner, executor · B-Tree & Hash indexes · Transactions with WAL · Dark-mode web console
+
+[Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Contributing](#contributing)
 
 </div>
 
+---
+
+## What Is This?
+
+A complete relational database, written from zero in plain JavaScript.
+No ORMs. No query libraries. No npm dependencies.
+
+Every layer is a few hundred lines of code you can open, read, and modify:
+
+- **Engine** — TCP server, wire protocol, connection state
+- **SQL frontend** — lexer, recursive-descent parser, AST
+- **Planner** — rule-based optimizer with index selection
+- **Executor** — operators for filter, sort, group, join, aggregate, window
+- **Storage** — databases, tables, typed columns, persisted rows
+- **Indexes** — B-Tree for ranges, Hash for equality
+- **Transactions** — session, undo log, write-ahead log, crash recovery
+- **UI** — dark-mode browser console with editor, results, schema sidebar
+
+It's the whole stack, wired end to end.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/hr5656/sql-clone
+cd sql-clone
+npm run dev
 
 
 
@@ -15,6 +54,10 @@
 A SQL database engine and browser UI, written from scratch in Node.js.
 
 No dependencies, no ORMs, no query libraries. Just TCP sockets, JSON files, and a hand-written parser, planner, and executor.
+
+
+<img src="images/logo.png" alt="RedisHit Architecture" width="600"/>
+
 
 ---
 
