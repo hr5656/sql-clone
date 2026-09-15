@@ -1,11 +1,12 @@
 # Relation database system
 
+#Open-source
 
 
 **A SQL database engine + browser UI, built from scratch in Node.js.**
 
-
-<img src="images/logo.png" alt="Hsql Logo" width="180" height="180"/>
+<div style="text-align:center">
+<img src="images/logo.png" alt="Hsql Logo" width="600" height="600"/>
 
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -41,6 +42,8 @@ It's the whole stack, wired end to end.
 
 ---
 
+
+
 ## Quick Start
 
 ```bash
@@ -56,7 +59,7 @@ A SQL database engine and browser UI, written from scratch in Node.js.
 No dependencies, no ORMs, no query libraries. Just TCP sockets, JSON files, and a hand-written parser, planner, and executor.
 
 
-<img src="images/logo.png" alt="RedisHit Architecture" width="600"/>
+
 
 
 ---
