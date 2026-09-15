@@ -5,3 +5,4 @@ export { update } from './update.js';
 export { remove as delete } from './delete.js';
 export { createIndex } from './createIndex.js';
 export { dropIndex } from './dropIndex.js';
+export { dropTable } from './dropTable.js';

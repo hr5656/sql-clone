@@ -36,19 +36,21 @@ export class Parser {
     return t;
   }
 
-    parse() {
+  // ---------- entry ----------
+  parse() {
     const t = this.peek();
     switch (t.value) {
-       case 'BEGIN':    return this.parseBegin();
+      case 'BEGIN':    return this.parseBegin();
       case 'COMMIT':   return this.parseCommit();
       case 'ROLLBACK': return this.parseRollback();
-      case 'WITH':    return this.parseWith();
-      case 'CREATE':  return this.parseCreate();
-      case 'DROP':    return this.parseDrop();
-      case 'INSERT':  return this.parseInsert();
-      case 'SELECT':  return this.parseSelect();
-      case 'UPDATE':  return this.parseUpdate();
-      case 'DELETE':  return this.parseDelete();
+      case 'WITH':     return this.parseWith();
+      case 'CREATE':   return this.parseCreate();
+      case 'DROP':     return this.parseDrop();
+      case 'USE':      return this.parseUse();          // ← NEW
+      case 'INSERT':   return this.parseInsert();
+      case 'SELECT':   return this.parseSelect();
+      case 'UPDATE':   return this.parseUpdate();
+      case 'DELETE':   return this.parseDelete();
       case 'EXPLAIN': {
         this.next();
         return { kind: 'Explain', inner: this.parse() };
@@ -59,7 +61,6 @@ export class Parser {
 
   parseBegin() {
     this.expect('BEGIN');
-    // optional: BEGIN TRANSACTION
     if (this.is('TRANSACTION')) this.next();
     if (this.is(';')) this.next();
     return new AST.BeginTx();
@@ -93,9 +94,17 @@ export class Parser {
     return new AST.WithQuery(ctes, inner);
   }
 
-  // ---------- CREATE TABLE ----------
-   parseCreate() {
+  // ---------- CREATE ----------
+  parseCreate() {
     this.expect('CREATE');
+
+    // CREATE DATABASE name
+    if (this.is('DATABASE')) {
+      this.next();
+      const name = this.expectType(TokenType.IDENT).value;
+      if (this.is(';')) this.next();
+      return new AST.CreateDatabase(name);
+    }
 
     // CREATE UNIQUE INDEX ...
     let unique = false;
@@ -104,7 +113,7 @@ export class Parser {
     if (this.is('INDEX')) return this.parseCreateIndex(unique);
     if (this.is('TABLE')) return this.parseCreateTable();
 
-    throw new ParseError(`Expected TABLE or INDEX after CREATE, got '${this.peek().value}'`);
+    throw new ParseError(`Expected DATABASE, TABLE, or INDEX after CREATE, got '${this.peek().value}'`);
   }
 
   parseCreateTable() {
@@ -140,7 +149,6 @@ export class Parser {
     this.expect('ON');
     const table = this.expectType(TokenType.IDENT).value;
 
-    // optional: USING HASH | USING BTREE
     let kind = 'BTREE';
     if (this.is('USING')) {
       this.next();
@@ -157,19 +165,44 @@ export class Parser {
     return new AST.CreateIndex({ name, table, column, unique, kind });
   }
 
+  // ---------- DROP ----------
   parseDrop() {
     this.expect('DROP');
+
     if (this.is('INDEX')) {
       this.next();
       const name = this.expectType(TokenType.IDENT).value;
       if (this.is(';')) this.next();
       return new AST.DropIndex({ name });
     }
-    throw new ParseError(`Only DROP INDEX is supported, got '${this.peek().value}'`);
+
+    if (this.is('TABLE')) {
+      this.next();
+      const name = this.expectType(TokenType.IDENT).value;
+      if (this.is(';')) this.next();
+      return new AST.DropTable(name);
+    }
+
+    if (this.is('DATABASE')) {
+      this.next();
+      const name = this.expectType(TokenType.IDENT).value;
+      if (this.is(';')) this.next();
+      return new AST.DropDatabase(name);
+    }
+
+    throw new ParseError(`Expected INDEX, TABLE, or DATABASE after DROP, got '${this.peek().value}'`);
+  }
+
+  // ---------- USE ----------
+  parseUse() {
+    this.expect('USE');
+    const name = this.expectType(TokenType.IDENT).value;
+    if (this.is(';')) this.next();
+    return new AST.UseDatabase(name);
   }
 
   // ---------- INSERT ----------
-   parseInsert() {
+  parseInsert() {
     this.expect('INSERT');
     this.expect('INTO');
     const table = this.expectType(TokenType.IDENT).value;
@@ -187,11 +220,10 @@ export class Parser {
 
     this.expect('VALUES');
 
-    // ---- one or more value rows ----
     const rows = [];
     rows.push(this.parseValueRow());
     while (this.is(',')) {
-      this.next();                 // comma BETWEEN rows
+      this.next();
       rows.push(this.parseValueRow());
     }
 
@@ -199,8 +231,7 @@ export class Parser {
     return new AST.Insert(table, columns, rows);
   }
 
-
-    parseValueRow() {
+  parseValueRow() {
     this.expect('(');
     const values = [];
     if (!this.is(')')) {
@@ -241,7 +272,6 @@ export class Parser {
     this.expect('FROM');
     const table = this.expectType(TokenType.IDENT).value;
 
-    // ---- JOINs ----
     const joins = [];
     while (this.is('INNER') || this.is('LEFT') || this.is('RIGHT') || this.is('CROSS')) {
       let type = 'INNER';
@@ -331,14 +361,13 @@ export class Parser {
   }
 
   // ---------- Pratt expressions ----------
-   parseExpr(minBP = 0) {
+  parseExpr(minBP = 0) {
     let left = this.parseUnary();
 
     while (true) {
       const t = this.peek();
       const op = t.value;
 
-      // IN (...)
       if (op === 'IN' && minBP <= 15) {
         this.next();
         this.expect('(');
@@ -357,7 +386,6 @@ export class Parser {
         continue;
       }
 
-      // IS [NOT] NULL
       if (op === 'IS' && minBP <= 15) {
         this.next();
         const negated = this.is('NOT') ? (this.next(), true) : false;
@@ -383,7 +411,7 @@ export class Parser {
     return this.parseAtom();
   }
 
-     parseAtom() {
+  parseAtom() {
     const t = this.next();
 
     if (t.type === TokenType.NUMBER) return Expr.literal(t.value);
@@ -394,7 +422,6 @@ export class Parser {
 
     if (t.value === 'CASE') return this.parseCase();
 
-    // EXISTS (subquery)
     if (t.value === 'EXISTS') {
       this.expect('(');
       const query = this.parse();
@@ -409,19 +436,16 @@ export class Parser {
       return Expr.exists(query, true);
     }
 
-    // Scalar subquery:  ( SELECT ... )
     if (t.value === '(' && this.is('SELECT')) {
       const query = this.parse();
       this.expect(')');
       return Expr.subquery(query);
     }
 
-    // Function call OR window function
     if ((t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) && this.is('(')) {
       const name = t.value.toUpperCase();
-      this.next(); // (
+      this.next();
 
-      // COUNT(*)
       if (name === 'COUNT' && this.is('*')) {
         this.next();
         this.expect(')');
@@ -435,12 +459,10 @@ export class Parser {
       }
       this.expect(')');
 
-      // Window function: OVER (...)
       if (this.is('OVER')) return this.parseOver(name, args);
       return Expr.func(name, args);
     }
 
-    // Identifier / qualified / window without parens (e.g. ROW_NUMBER OVER)
     if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
       if (['ROW_NUMBER', 'RANK', 'DENSE_RANK'].includes(t.value) && this.is('OVER')) {
         return this.parseOver(t.value, []);

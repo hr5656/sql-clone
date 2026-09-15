@@ -1,6 +1,6 @@
 import { TcpServer } from './server/tcpServer.js';
 import { WebServer } from './server/webServer.js';
-import { getDatabase } from './server/databaseInstance.js';
+import { getDatabase } from './server/databaseManager.js';
 import { recoverFromWAL } from './storage/walRecovery.js';
 import path from 'node:path';
 

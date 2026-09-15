@@ -1,8 +1,11 @@
 import { Executor } from '../sql/executor/executor.js';
 import { SqlError } from '../common/errors.js';
-import { getDatabase } from './databaseInstance.js';
 import { Session } from '../transaction/session.js';
 import { WriteAheadLog } from '../transaction/wal.js';
+import {
+  getDatabase,
+  listDatabases,
+} from './databaseManager.js';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;
 
@@ -10,14 +13,21 @@ export class Protocol {
   constructor(socket, { dbName = 'default' } = {}) {
     this.socket = socket;
     this.buffer = Buffer.alloc(0);
-    this.database = getDatabase(dbName);
 
-    // WAL + session FIRST so the executor can receive the session
+    // Per-session active database
+    this._activeDb = dbName;
+    getDatabase(dbName);                       // ensure it's loaded
+
     this.wal = new WriteAheadLog(`data/${dbName}.wal`);
     this.session = new Session({ wal: this.wal });
 
-    // Pass the session into the executor so mutating operators can record undo
-    this.executor = new Executor(this.database, this.session);
+    // Executor gets a resolver function so it always sees this session's DB
+    this.executor = new Executor(() => this.database, this.session);
+  }
+
+  /** This connection's database. */
+  get database() {
+    return getDatabase(this._activeDb);
   }
 
   onData(chunk) {
@@ -45,11 +55,25 @@ export class Protocol {
 
     // ----- meta -----
     if (trimmed === '__META__ TABLES') { this.sendTables(); return; }
+    if (trimmed === '__META__ DBS')    { this.sendDbs();    return; }
 
-    // ----- transaction control -----
     try {
       const upper = trimmed.toUpperCase().replace(/;+$/, '');
 
+      // ----- USE <db> — switch this session's active database -----
+      const useMatch = trimmed.match(/^USE\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?$/i);
+      if (useMatch) {
+        const name = useMatch[1];          // ← preserves original case
+        getDatabase(name);
+        this._activeDb = name;
+        this.wal = new WriteAheadLog(`data/${name}.wal`);
+        this.session = new Session({ wal: this.wal });
+        this.executor = new Executor(() => this.database, this.session);
+        this.send({ ok: true, kind: 'use-database', name });
+        return;
+      }
+
+      // ----- transaction control -----
       if (upper === 'BEGIN' || upper === 'BEGIN TRANSACTION') {
         this.session.begin();
         this.send({ ok: true, kind: 'begin', txId: this.session.currentTx.id });
@@ -66,13 +90,15 @@ export class Protocol {
         return;
       }
 
+      // ----- normal SQL -----
       console.log('[sql]', trimmed);
       const result = this.executor.execute(trimmed);
 
-      // Inside a transaction, snapshot every table for WAL recovery.
+      // WAL: snapshot every table if inside a transaction and the statement mutates
       if (this.session.inTransaction() && this._statementMutates(trimmed)) {
-        for (const tname of this.database.listTables()) {
-          const t = this.database.getTable(tname);
+        const db = this.database;
+        for (const tname of db.listTables()) {
+          const t = db.getTable(tname);
           this.wal.append({
             type: 'MUTATE',
             txId: this.session.currentTx.id,
@@ -98,8 +124,9 @@ export class Protocol {
   }
 
   sendTables() {
-    const tables = this.database.listTables().map((name) => {
-      const t = this.database.getTable(name);
+    const db = this.database;                 // ensure correct DB
+    const tables = db.listTables().map((name) => {
+      const t = db.getTable(name);
       const namedSet = new Set(t.indexes.map((m) => m.name));
       const implicit = [];
       for (const c of t.columns) {
@@ -120,7 +147,15 @@ export class Protocol {
         indexes,
       };
     });
-    this.send({ ok: true, tables });
+    this.send({ ok: true, tables, database: this._activeDb });
+  }
+
+  sendDbs() {
+    this.send({
+      ok: true,
+      databases: listDatabases(),
+      active: this._activeDb,
+    });
   }
 
   send(objOrString) {

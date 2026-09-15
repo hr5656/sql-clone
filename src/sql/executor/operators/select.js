@@ -10,7 +10,7 @@ export function select(database, node, cteContext = {}, outerRow = null) {
     }
   }
 
-  // ---- Context for subqueries (must exist BEFORE the FROM block) ----
+  // ---- Context for subqueries ----
   const ctx = {
     runSubquery: (q, row) => {
       const merged = outerRow
@@ -20,7 +20,7 @@ export function select(database, node, cteContext = {}, outerRow = null) {
     },
   };
 
-  // ---- 1. FROM (with index-aware access) ----
+  // ---- 1. FROM ----
   let rows;
   if (!node.table) {
     rows = [{}];
@@ -34,9 +34,6 @@ export function select(database, node, cteContext = {}, outerRow = null) {
     rows = accessRows(access, table, node.table, database.indexes, ctx);
   }
 
-  // If a correlated subquery provides an outer row, merge its columns into
-  // each inner row so unqualified names resolve to the outer scope when the
-  // inner table doesn't already have that column.
   if (outerRow) {
     rows = rows.map((r) => ({ ...outerRow, ...r }));
   }
@@ -57,7 +54,7 @@ export function select(database, node, cteContext = {}, outerRow = null) {
   // ---- 3. WHERE ----
   if (node.where) rows = rows.filter((r) => truthy(evalExpr(node.where, r, null, ctx)));
 
-  // ---- 4. Window functions (must run before grouping) ----
+  // ---- 4. Window functions ----
   const hasWindow = node.columns.some((c) => containsWindow(c.expr));
   if (hasWindow) return runWindowQuery(rows, node, ctx);
 
@@ -69,7 +66,8 @@ export function select(database, node, cteContext = {}, outerRow = null) {
   if (isGrouped) return groupAndProject(rows, node, ctx);
 
   // ---- 6. simple projection ----
-  let result = project(rows, node.columns, ctx);
+  const cleanStar = (node.joins || []).length === 0;
+  let result = project(rows, node.columns, ctx, cleanStar);
 
   if (node.distinct) result = dedup(result);
   if (node.orderBy)  result = sortRows(result, node.orderBy, ctx);
@@ -144,6 +142,7 @@ function groupAndProject(rows, node, ctx) {
     buckets.set('__single__', []);
   }
 
+  const cleanStar = (node.joins || []).length === 0;
   const out = [];
   for (const [, groupRows] of buckets) {
     const sample = groupRows[0] || {};
@@ -155,7 +154,12 @@ function groupAndProject(rows, node, ctx) {
 
     const o = {};
     for (const { expr, alias } of node.columns) {
-      if (expr.kind === 'Star') { Object.assign(o, sample); continue; }
+      if (expr.kind === 'Star') {
+        for (const [k, v] of Object.entries(sample)) {
+          if (!cleanStar || !k.includes('.')) o[k] = v;
+        }
+        continue;
+      }
       const name = alias || defaultColumnName(expr);
       o[name] = evalExpr(expr, sample, groupRows, ctx);
     }
@@ -175,7 +179,7 @@ function groupAndProject(rows, node, ctx) {
    WINDOW FUNCTIONS
    ============================================================ */
 function runWindowQuery(rows, node, ctx) {
-  const windowValues = new Map(); // column-index → array of values (aligned to `rows`)
+  const windowValues = new Map();
 
   for (let ci = 0; ci < node.columns.length; ci++) {
     const col = node.columns[ci];
@@ -183,11 +187,17 @@ function runWindowQuery(rows, node, ctx) {
     windowValues.set(ci, computeWindow(col.expr, rows, ctx));
   }
 
+  const cleanStar = (node.joins || []).length === 0;
   const projected = rows.map((row, rowIdx) => {
     const o = {};
     for (let ci = 0; ci < node.columns.length; ci++) {
       const { expr, alias } = node.columns[ci];
-      if (expr.kind === 'Star') { Object.assign(o, row); continue; }
+      if (expr.kind === 'Star') {
+        for (const [k, v] of Object.entries(row)) {
+          if (!cleanStar || !k.includes('.')) o[k] = v;
+        }
+        continue;
+      }
 
       const name = alias || defaultColumnName(expr);
       if (windowValues.has(ci)) o[name] = windowValues.get(ci)[rowIdx];
@@ -209,7 +219,6 @@ function computeWindow(expr, rows, ctx) {
   const { name, partitionBy, orderBy, dir } = expr;
   const result = new Array(rows.length);
 
-  // partition
   const partitions = new Map();
   rows.forEach((r, i) => {
     const key = partitionBy.length
@@ -281,14 +290,26 @@ function containsWindow(expr) {
 }
 
 /* ============================================================
-   PROJECTION
+   PROJECTION  ← THE FIX
    ============================================================ */
-function project(rows, columns, ctx) {
+function project(rows, columns, ctx, cleanStar = true) {
   return rows.map((row) => {
-    if (columns.length === 1 && columns[0].expr.kind === 'Star') return { ...row };
+    if (columns.length === 1 && columns[0].expr.kind === 'Star') {
+      if (!cleanStar) return { ...row };
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!k.includes('.')) out[k] = v;
+      }
+      return out;
+    }
     const o = {};
     for (const { expr, alias } of columns) {
-      if (expr.kind === 'Star') { Object.assign(o, row); continue; }
+      if (expr.kind === 'Star') {
+        for (const [k, v] of Object.entries(row)) {
+          if (!cleanStar || !k.includes('.')) o[k] = v;
+        }
+        continue;
+      }
       const name = alias || defaultColumnName(expr);
       o[name] = evalExpr(expr, row, null, ctx);
     }
@@ -377,7 +398,7 @@ function accessRows(access, table, tableName, indexManager, ctx = {}) {
     try {
       return rows.filter((r) => truthy(evalExpr(predicate, r, null, ctx)));
     } catch {
-      return null; // fall back to full scan
+      return null;
     }
   };
 

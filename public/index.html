@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SQL Clone</title>
+  <title>Relational Database System</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -11,13 +11,16 @@
   <!-- ============ TOPBAR ============ -->
   <header class="topbar">
     <div class="brand">
-    <img  src="./media/logo.png" width="55px">
+      <img src="/media/logo.png" width="55" alt="SQL Clone logo">
       <div class="brand-text">
-       
+        <span class="brand-name">Relational Database</span>
+        <span class="brand-sub">Written over node.js</span>
       </div>
     </div>
 
     <div class="topbar-right">
+      <select id="db-picker" class="db-picker" title="Active database"></select>
+      <button id="reset-session" class="btn btn--ghost" title="Reset engine session">New session</button>
       <span id="status" class="status status--down">
         <span class="dot"></span><span id="status-text">connecting…</span>
       </span>
@@ -58,9 +61,12 @@
     <section class="pane pane--query">
       <div class="pane-header">
         <h2>Query</h2>
-        <span class="hint">Ctrl / ⌘ + Enter to run</span>
+        <span class="hint">Ctrl / ⌘ + Enter to run · Ctrl+Space for autocomplete</span>
       </div>
-      <textarea id="editor" spellcheck="false" placeholder="SELECT * FROM users;"></textarea>
+      <div class="editor-wrap">
+        <textarea id="editor" spellcheck="false" placeholder="SELECT * FROM users;"></textarea>
+        <div id="autocomplete" class="autocomplete" hidden></div>
+      </div>
       <div class="pane-actions">
         <button id="run" class="btn btn--primary">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
@@ -69,6 +75,9 @@
         <button id="clear" class="btn">Clear</button>
         <button id="sample" class="btn btn--ghost">Load sample</button>
         <span class="spacer"></span>
+        <button id="begin"    class="btn">BEGIN</button>
+        <button id="commit"   class="btn">COMMIT</button>
+        <button id="rollback" class="btn">ROLLBACK</button>
         <span id="timing" class="timing"></span>
       </div>
     </section>
@@ -77,15 +86,20 @@
     <section class="pane pane--result">
       <div class="pane-header">
         <h2>Result</h2>
-        <span id="meta" class="hint"></span>
+        <div class="pane-header-right">
+          <button id="export-csv"  class="mini" title="Export CSV">CSV</button>
+          <button id="export-json" class="mini" title="Export JSON">JSON</button>
+          <span id="meta" class="hint"></span>
+        </div>
       </div>
       <div id="result" class="result">
         <div class="placeholder">Run a query to see results.</div>
       </div>
     </section>
   </main>
-    <footer class="credit">
-    <span>A sql-clone project of <strong>Harshit Rajput.</strong></span>
+
+  <footer class="credit">
+    <span>Developed by <strong>Harshit Rajput.</strong>               <span>V 0.1</span></span>
   </footer>
 
   <script type="module" src="/app.js"></script>

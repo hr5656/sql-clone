@@ -93,3 +93,30 @@ export class CommitTx {
 export class RollbackTx {
   constructor() { this.kind = 'Rollback'; }
 }
+export class CreateDatabase {
+  constructor(name) {
+    this.kind = 'CreateDatabase';
+    this.name = name;
+  }
+}
+
+export class DropDatabase {
+  constructor(name) {
+    this.kind = 'DropDatabase';
+    this.name = name;
+  }
+}
+
+export class UseDatabase {
+  constructor(name) {
+    this.kind = 'UseDatabase';
+    this.name = name;
+  }
+}
+
+export class DropTable {
+  constructor(name) {
+    this.kind = 'DropTable';
+    this.name = name;
+  }
+}
