@@ -4,13 +4,13 @@
 
 # Relational Database
 
-<img src="./images/logo.png" with:100% >
+<img src="images/logo.png" alt="Hsql Logo" width="100%" />
 
 
 ### A SQL database engine + browser UI, built from scratch in Node.js.
 
 Hand-written lexer · Recursive-descent parser · Rule-based planner ·
-B-Tree & Hash indexes · Transactions with WAL · Dark-mode web console
+B-Tree & Hash indexes · Transactions with WAL · Web console
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
