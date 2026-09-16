@@ -1,0 +1,18 @@
+services:
+  sql-clone:
+    build:
+      context: .
+      target: runtime
+    image: sql-clone:dev
+    container_name: sql-clone-dev
+    command: ["node", "--watch", "src/index.js"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - sqlclone-dev-data:/app/data
+
+volumes:
+  sqlclone-dev-data:
+    name: sql-clone-dev-data

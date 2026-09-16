@@ -22,6 +22,8 @@ export function select(database, node, cteContext = {}, outerRow = null) {
 
   // ---- 1. FROM ----
   let rows;
+  const hasJoins = (node.joins || []).length > 0;
+
   if (!node.table) {
     rows = [{}];
   } else if (cteContext[node.table]) {
@@ -30,8 +32,14 @@ export function select(database, node, cteContext = {}, outerRow = null) {
     const table = database.getTable(node.table);
     if (!table) throw new Error(`Table '${node.table}' not found`);
 
-    const access = planAccess(node.table, node, database.indexes);
-    rows = accessRows(access, table, node.table, database.indexes, ctx);
+    // When there are joins, defer WHERE to after the join is applied —
+    // accessRows would filter out rows whose joined columns don't exist yet.
+    if (hasJoins) {
+      rows = table.scanJSON().map((r) => prefixRow(r, node.table));
+    } else {
+      const access = planAccess(node.table, node, database.indexes);
+      rows = accessRows(access, table, node.table, database.indexes, ctx);
+    }
   }
 
   if (outerRow) {
@@ -65,14 +73,18 @@ export function select(database, node, cteContext = {}, outerRow = null) {
 
   if (isGrouped) return groupAndProject(rows, node, ctx);
 
-  // ---- 6. simple projection ----
+   // ---- 6. sort BEFORE projection so ORDER BY can see any source column ----
+  let sortedRows = rows;
+  if (node.orderBy) sortedRows = sortSourceRows(sortedRows, node.orderBy, ctx);
+
+  // ---- 7. simple projection ----
   const cleanStar = (node.joins || []).length === 0;
-  let result = project(rows, node.columns, ctx, cleanStar);
+  let result = project(sortedRows, node.columns, ctx, cleanStar);
 
   if (node.distinct) result = dedup(result);
-  if (node.orderBy)  result = sortRows(result, node.orderBy, ctx);
   if (node.offset)   result = result.slice(node.offset);
   if (node.limit != null) result = result.slice(0, node.limit);
+
 
   return { ok: true, kind: 'select', rowCount: result.length, rows: result };
 }
@@ -92,6 +104,10 @@ function applyJoin(left, right, join, ctx) {
   const on = join.on;
   const out = [];
 
+  // Collect all keys present on either side, so unmatched rows can be padded with null
+  const rightKeys = new Set();
+  for (const r of right) for (const k of Object.keys(r)) rightKeys.add(k);
+
   if (join.type === 'CROSS') {
     for (const l of left) for (const r of right) out.push({ ...l, ...r });
     return out;
@@ -106,7 +122,11 @@ function applyJoin(left, right, join, ctx) {
         matched = true;
       }
     }
-    if (!matched && join.type === 'LEFT') out.push({ ...l });
+    if (!matched && join.type === 'LEFT') {
+      const padded = { ...l };
+      for (const k of rightKeys) if (!(k in padded)) padded[k] = null;
+      out.push(padded);
+    }
   }
 
   if (join.type === 'RIGHT') {
@@ -117,8 +137,14 @@ function applyJoin(left, right, join, ctx) {
         if (!on || truthy(evalExpr(on, merged, null, ctx))) rightMatched.add(r);
       }
     }
+    const leftKeys = new Set();
+    for (const l of left) for (const k of Object.keys(l)) leftKeys.add(k);
     for (const r of right) {
-      if (!rightMatched.has(r)) out.push({ ...r });
+      if (!rightMatched.has(r)) {
+        const padded = { ...r };
+        for (const k of leftKeys) if (!(k in padded)) padded[k] = null;
+        out.push(padded);
+      }
     }
   }
 
@@ -231,8 +257,8 @@ function computeWindow(expr, rows, ctx) {
   for (const [, indices] of partitions) {
     if (orderBy) {
       indices.sort((a, b) => {
-        const av = evalExpr(orderBy, rows[a], null, ctx);
-        const bv = evalExpr(orderBy, rows[b], null, ctx);
+        const av = resolveSortKey(orderBy, rows[a], ctx);
+        const bv = resolveSortKey(orderBy, rows[b], ctx);
         if (av == null && bv == null) return 0;
         if (av == null) return -1;
         if (bv == null) return 1;
@@ -245,18 +271,16 @@ function computeWindow(expr, rows, ctx) {
     if (name === 'ROW_NUMBER') {
       indices.forEach((i, pos) => { result[i] = pos + 1; });
     } else if (name === 'RANK') {
-      let rank = 0;
-      let lastVal = Symbol('none');
+      let rank = 0, lastVal = Symbol('none');
       indices.forEach((i, pos) => {
-        const v = orderBy ? evalExpr(orderBy, rows[i], null, ctx) : pos;
+        const v = orderBy ? resolveSortKey(orderBy, rows[i], ctx) : pos;
         if (v !== lastVal) { rank = pos + 1; lastVal = v; }
         result[i] = rank;
       });
     } else if (name === 'DENSE_RANK') {
-      let rank = 0;
-      let lastVal = Symbol('none');
+      let rank = 0, lastVal = Symbol('none');
       indices.forEach((i) => {
-        const v = orderBy ? evalExpr(orderBy, rows[i], null, ctx) : 0;
+        const v = orderBy ? resolveSortKey(orderBy, rows[i], ctx) : 0;
         if (v !== lastVal) { rank++; lastVal = v; }
         result[i] = rank;
       });
@@ -279,6 +303,20 @@ function computeWindow(expr, rows, ctx) {
 
   return result;
 }
+
+/** Resolve ORDER BY key names even when rows are prefixed or bare. */
+function resolveSortKey(key, row, ctx) {
+  if (key.kind === 'ColumnRef') {
+    // Try exact, then prefixed variants
+    if (key.name in row) return row[key.name];
+    for (const k of Object.keys(row)) {
+      if (k.endsWith(`.${key.name}`)) return row[k];
+    }
+    return null;
+  }
+  return evalExpr(key, row, null, ctx);
+}
+
 
 function containsWindow(expr) {
   if (!expr) return false;
@@ -439,4 +477,17 @@ function fullScan(table, tableName, predicate, ctx) {
   let result = table.scanJSON().map((r) => prefixRow(r, tableName));
   if (predicate) result = result.filter((r) => truthy(evalExpr(predicate, r, null, ctx)));
   return result;
+}
+function sortSourceRows(rows, { key, dir }, ctx) {
+  const sign = dir === 'DESC' ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const av = evalExpr(key, a, null, ctx);
+    const bv = evalExpr(key, b, null, ctx);
+    if (av == null && bv == null) return 0;
+    if (av == null) return -1 * sign;
+    if (bv == null) return 1 * sign;
+    if (av < bv) return -1 * sign;
+    if (av > bv) return 1 * sign;
+    return 0;
+  });
 }

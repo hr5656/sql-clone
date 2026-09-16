@@ -9,6 +9,17 @@ export function insert(database, node, session = null) {
   const beforeLen = table.rows.length;
 
   let inserted = 0;
+
+  // Collect unique columns (PK + UNIQUE + unique indexes)
+  const uniqueCols = new Set();
+  for (const col of table.columns) {
+    if (col.primaryKey || col.unique) uniqueCols.add(col.name);
+  }
+  for (const [key, idx] of database.indexes.indexes) {
+    const [t, c] = key.split('.');
+    if (t === node.table && idx.unique) uniqueCols.add(c);
+  }
+
   for (const rowValues of node.values) {
     const data = {};
 
@@ -21,20 +32,19 @@ export function insert(database, node, session = null) {
     }
 
     // UNIQUE / PRIMARY KEY checks (via index if present)
-    for (const col of table.columns) {
-      if (!col.unique && !col.primaryKey) continue;
-      const v = data[col.name];
-      if (v === undefined) continue;
+    for (const colName of uniqueCols) {
+      const v = data[colName];
+      if (v === undefined || v === null) continue;
 
-      const idx = database.indexes.get(node.table, col.name);
+      const idx = database.indexes.get(node.table, colName);
       if (idx) {
         if (idx.find(v).length > 0) {
-          throw new StorageError(`UNIQUE violation on ${col.name} = ${v}`);
+          throw new StorageError(`UNIQUE violation on ${colName} = ${v}`);
         }
       } else {
         for (const existing of table.scan()) {
-          if (existing.get(col.name) === v) {
-            throw new StorageError(`UNIQUE violation on ${col.name} = ${v}`);
+          if (existing.get(colName) === v) {
+            throw new StorageError(`UNIQUE violation on ${colName} = ${v}`);
           }
         }
       }

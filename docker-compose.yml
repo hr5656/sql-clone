@@ -1,0 +1,41 @@
+services:
+  sql-clone:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sql-clone:latest
+    container_name: sql-clone
+    restart: unless-stopped
+
+    ports:
+      - "5433:5433"
+      - "8080:8080"
+
+    environment:
+      NODE_ENV: production
+      PORT: 5433
+      WEB_PORT: 8080
+      HOST: 0.0.0.0
+
+    volumes:
+      - sqlclone-data:/app/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  sqlclone-data:
+    name: sql-clone-data
